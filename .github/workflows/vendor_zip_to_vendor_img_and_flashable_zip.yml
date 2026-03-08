@@ -1,4 +1,4 @@
-name: Build Vendor Flashable
+name: Build Vendor IMG + Flashable ZIP
 
 on:
   workflow_dispatch:
@@ -13,13 +13,13 @@ jobs:
 
     steps:
 
-      - name: Checkout
+      - name: Checkout repo
         uses: actions/checkout@v4
 
-      - name: Instalar ferramentas
+      - name: Instalar dependências
         run: |
           sudo apt update
-          sudo apt install -y unzip e2fsprogs android-sdk-libsparse-utils rsync wget zip
+          sudo apt install -y unzip rsync e2fsprogs img2simg wget zip
 
       - name: Baixar vendor.zip
         run: |
@@ -42,10 +42,10 @@ jobs:
             mv * vendor_root/ 2>/dev/null || true
           fi
 
-          echo "Conteúdo detectado:"
+          echo "Arquivos detectados:"
           ls vendor_root | head
 
-      - name: Calcular tamanho da imagem
+      - name: Calcular tamanho
         run: |
           cd work
           SIZE=$(du -sm vendor_root | cut -f1)
@@ -64,24 +64,22 @@ jobs:
           sudo rsync -aHAX vendor_root/ mnt/
           sudo umount mnt
 
-      - name: Converter sparse
+      - name: Criar sparse image
         run: |
           cd work
           img2simg vendor.img vendor_sparse.img
 
-      - name: Criar estrutura flashable
+      - name: Criar flashable structure
         run: |
           cd work
-
           mkdir -p flash/META-INF/com/google/android
 
-          cat > flash/META-INF/com/google/android/updater-script <<'EOF'
-          ui_print("Flashing vendor image...");
-          package_extract_file("vendor.img", "/dev/block/by-name/vendor");
-          ui_print("Vendor flash complete!");
-          EOF
+          cat > flash/META-INF/com/google/android/updater-script <<EOF
+ui_print("Flashing vendor...");
+package_extract_file("vendor.img", "/dev/block/by-name/vendor");
+ui_print("Done!");
+EOF
 
-          # stub update-binary
           printf '#!/sbin/sh\nexit 0\n' > flash/META-INF/com/google/android/update-binary
           chmod +x flash/META-INF/com/google/android/update-binary
 
@@ -92,11 +90,20 @@ jobs:
           cd work/flash
           zip -r ../vendor_flashable.zip *
 
-      - name: Upload artifacts
+      - name: Upload vendor.img
         uses: actions/upload-artifact@v4
         with:
-          name: vendor-build
-          path: |
-            work/vendor.img
-            work/vendor_sparse.img
-            work/vendor_flashable.zip
+          name: vendor-img
+          path: work/vendor.img
+
+      - name: Upload vendor sparse
+        uses: actions/upload-artifact@v4
+        with:
+          name: vendor-sparse
+          path: work/vendor_sparse.img
+
+      - name: Upload flashable zip
+        uses: actions/upload-artifact@v4
+        with:
+          name: vendor-flashable
+          path: work/vendor_flashable.zip
