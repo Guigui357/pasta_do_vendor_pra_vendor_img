@@ -19,7 +19,7 @@ jobs:
       - name: Instalar ferramentas
         run: |
           sudo apt update
-          sudo apt install -y unzip e2fsprogs img2simg rsync wget zip
+          sudo apt install -y unzip e2fsprogs android-sdk-libsparse-utils rsync wget zip
 
       - name: Baixar vendor.zip
         run: |
