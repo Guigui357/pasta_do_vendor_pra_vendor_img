@@ -1,0 +1,102 @@
+name: Build Vendor Flashable
+
+on:
+  workflow_dispatch:
+    inputs:
+      vendor_zip_url:
+        description: "Link direto do vendor.zip"
+        required: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Instalar ferramentas
+        run: |
+          sudo apt update
+          sudo apt install -y unzip e2fsprogs img2simg rsync wget zip
+
+      - name: Baixar vendor.zip
+        run: |
+          mkdir work
+          cd work
+          wget "${{ github.event.inputs.vendor_zip_url }}" -O vendor.zip
+
+      - name: Extrair vendor
+        run: |
+          cd work
+          unzip -q vendor.zip
+
+          if [ -d vendor/vendor ]; then
+            mv vendor/vendor vendor_root
+          elif [ -d vendor ]; then
+            mv vendor vendor_root
+          else
+            mkdir vendor_root
+            shopt -s dotglob
+            mv * vendor_root/ 2>/dev/null || true
+          fi
+
+          echo "Conteúdo detectado:"
+          ls vendor_root | head
+
+      - name: Calcular tamanho da imagem
+        run: |
+          cd work
+          SIZE=$(du -sm vendor_root | cut -f1)
+          SIZE=$((SIZE + 300))
+          echo "SIZE=$SIZE" >> $GITHUB_ENV
+
+      - name: Criar vendor.img
+        run: |
+          cd work
+
+          dd if=/dev/zero of=vendor.img bs=1M count=${SIZE}
+          mkfs.ext4 -F -L vendor vendor.img
+
+          mkdir mnt
+          sudo mount -o loop vendor.img mnt
+          sudo rsync -aHAX vendor_root/ mnt/
+          sudo umount mnt
+
+      - name: Converter sparse
+        run: |
+          cd work
+          img2simg vendor.img vendor_sparse.img
+
+      - name: Criar estrutura flashable
+        run: |
+          cd work
+
+          mkdir -p flash/META-INF/com/google/android
+
+          cat > flash/META-INF/com/google/android/updater-script <<'EOF'
+          ui_print("Flashing vendor image...");
+          package_extract_file("vendor.img", "/dev/block/by-name/vendor");
+          ui_print("Vendor flash complete!");
+          EOF
+
+          # stub update-binary
+          printf '#!/sbin/sh\nexit 0\n' > flash/META-INF/com/google/android/update-binary
+          chmod +x flash/META-INF/com/google/android/update-binary
+
+          cp vendor.img flash/
+
+      - name: Criar flashable zip
+        run: |
+          cd work/flash
+          zip -r ../vendor_flashable.zip *
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: vendor-build
+          path: |
+            work/vendor.img
+            work/vendor_sparse.img
+            work/vendor_flashable.zip
